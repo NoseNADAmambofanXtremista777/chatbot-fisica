@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { supabase } from "../lib/supabaseClient";
+import { calculateAge, MIN_AGE } from "../lib/age";
 
 export default function AuthModal({ onClose }) {
   const [mode, setMode] = useState("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [birthdate, setBirthdate] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [info, setInfo] = useState(null);
@@ -27,7 +29,22 @@ export default function AuthModal({ onClose }) {
     setLoading(true);
     try {
       if (mode === "signup") {
-        const { error: err } = await supabase.auth.signUp({ email, password });
+        if (!birthdate) {
+          setError("Ingresa tu fecha de nacimiento.");
+          setLoading(false);
+          return;
+        }
+        const age = calculateAge(birthdate);
+        if (age < MIN_AGE) {
+          setError(`Este servicio no está dirigido a menores de ${MIN_AGE} años. No podemos crear tu cuenta.`);
+          setLoading(false);
+          return;
+        }
+        const { error: err } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { data: { birthdate } },
+        });
         if (err) throw err;
         setInfo("Cuenta creada. Revisa tu correo para confirmar antes de iniciar sesión.");
       } else {
@@ -60,6 +77,11 @@ export default function AuthModal({ onClose }) {
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h2>{mode === "signup" ? "Crear cuenta" : "Iniciar sesión"}</h2>
         <p className="modal-sub">Guarda tu historial de chats con Finx.</p>
+        {mode === "signup" && (
+          <p className="modal-sub">
+            Este servicio no está dirigido a menores de {MIN_AGE} años.
+          </p>
+        )}
 
         <button className="google-btn" type="button" onClick={handleGoogle}>
           Continuar con Google
@@ -83,6 +105,18 @@ export default function AuthModal({ onClose }) {
             minLength={6}
             required
           />
+          {mode === "signup" && (
+            <label className="modal-field-label">
+              Fecha de nacimiento
+              <input
+                type="date"
+                value={birthdate}
+                onChange={(e) => setBirthdate(e.target.value)}
+                max={new Date().toISOString().split("T")[0]}
+                required
+              />
+            </label>
+          )}
           {error && <p className="modal-error">{error}</p>}
           {info && <p className="modal-info">{info}</p>}
           <button className="new-chat-btn" type="submit" disabled={loading}>

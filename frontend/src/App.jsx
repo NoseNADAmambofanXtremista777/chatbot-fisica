@@ -3,6 +3,7 @@ import Sidebar from "./components/Sidebar";
 import ChatView from "./components/ChatView";
 import SourcesPanel from "./components/SourcesPanel";
 import AuthModal from "./components/AuthModal";
+import AgeGateModal from "./components/AgeGateModal";
 import { supabase } from "./lib/supabaseClient";
 import {
   sendChatMessage,
@@ -30,6 +31,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [accessToken, setAccessToken] = useState(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [ageBlockedMessage, setAgeBlockedMessage] = useState(null);
 
   // Modo invitado: todo en localStorage
   const [localSessions, setLocalSessions] = useState(() => loadSessions());
@@ -326,6 +328,11 @@ export default function App() {
     }
   }
 
+  // Cubre el login con Google (no pasa por el formulario de registro propio):
+  // si ya hay sesion pero el usuario nunca confirmo su fecha de nacimiento,
+  // se le pide antes de dejarlo usar la app (COPPA).
+  const needsAgeConfirmation = isAuthed && !user.user_metadata?.birthdate;
+
   const sidebarSessions = isAuthed ? remoteConversations : localSessions;
   const sidebarCurrentId = isAuthed ? currentRemoteId : currentLocalId;
   const currentHistory = isAuthed
@@ -369,6 +376,22 @@ export default function App() {
       )}
 
       {authModalOpen && <AuthModal onClose={() => setAuthModalOpen(false)} />}
+
+      {needsAgeConfirmation && (
+        <AgeGateModal onBlocked={(message) => setAgeBlockedMessage(message)} />
+      )}
+
+      {ageBlockedMessage && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <h2>No podemos crear tu cuenta</h2>
+            <p className="modal-sub">{ageBlockedMessage}</p>
+            <button className="new-chat-btn" onClick={() => setAgeBlockedMessage(null)}>
+              Entendido
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
