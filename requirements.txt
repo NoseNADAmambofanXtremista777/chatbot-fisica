@@ -1,11 +1,21 @@
 fastapi
 uvicorn
 pydantic
+python-dotenv
+python-multipart
+
+# LLM (Groq) y embeddings locales
 langchain
 langchain-core
-langchain-chroma
+langchain-community
 langchain-groq
 langchain-huggingface
 sentence-transformers
-chromadb
+groq
+
+# Carga de documentos fuente
 pypdf
+python-pptx
+
+# Persistencia / vector store
+supabase

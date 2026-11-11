@@ -12,3 +12,6 @@ frontend/node_modules/
 frontend/dist/
 
 .DS_Store
+
+# Config local de Claude Code (permisos de esta maquina/sesion)
+.claude/settings.local.json
