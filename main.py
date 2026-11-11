@@ -40,6 +40,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), geolocation=(), payment=()"
+    return response
+
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_CHAT_MODEL = os.getenv("GROQ_CHAT_MODEL", "openai/gpt-oss-120b")
 # El catalogo de modelos con vision de Groq cambia seguido (hoy en preview).
@@ -80,6 +90,7 @@ GUEST_MESSAGE_LIMIT = int(os.getenv("GUEST_MESSAGE_LIMIT", "10"))
 # si se necesita mas rigor, mover esto a Supabase o Redis.
 _guest_usage: Dict[str, Dict[str, object]] = {}
 
+MAX_MESSAGE_LENGTH = 4000  # caracteres
 MAX_IMAGE_BYTES = 6 * 1024 * 1024  # ~6 MB
 ALLOWED_IMAGE_MIME = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 MAX_AUDIO_BYTES = 15 * 1024 * 1024  # ~15 MB
@@ -137,28 +148,27 @@ def get_current_user(authorization: Optional[str] = Header(None)):
         return None
 
 
-def ensure_conversation(user_id: str, conversation_id: Optional[str], title_hint: str) -> str:
-    if conversation_id:
-        owner = supabase.table("conversations").select("user_id").eq("id", conversation_id).execute()
-        if owner.data and owner.data[0]["user_id"] == user_id:
-            return conversation_id
-    title = title_hint.strip()[:40] or "Nueva conversación"
-    if len(title_hint.strip()) > 40:
-        title += "..."
-    created = supabase.table("conversations").insert({"user_id": user_id, "title": title}).execute()
-    return created.data[0]["id"]
-
-
-def save_message(conversation_id: str, role: str, content: str, attachment_type: Optional[str] = None):
-    supabase.table("messages").insert({
-        "conversation_id": conversation_id,
-        "role": role,
-        "content": content,
-        "attachment_type": attachment_type,
+def send_message(
+    user_id: str,
+    conversation_id: Optional[str],
+    title_hint: str,
+    role: str,
+    content: str,
+    attachment_type: Optional[str] = None,
+) -> str:
+    """Crea la conversacion si hace falta, guarda el mensaje y actualiza
+    conversations.updated_at en una sola transaccion de Postgres (ver
+    supabase/migrations/0002_atomic_messages.sql). Nunca dos llamadas HTTP
+    sueltas para esto: o se guarda todo, o no se guarda nada."""
+    result = supabase.rpc("send_message", {
+        "p_user_id": user_id,
+        "p_conversation_id": conversation_id,
+        "p_title_hint": title_hint,
+        "p_role": role,
+        "p_content": content,
+        "p_attachment_type": attachment_type,
     }).execute()
-    supabase.table("conversations").update({
-        "updated_at": datetime.now(timezone.utc).isoformat()
-    }).eq("id", conversation_id).execute()
+    return result.data
 
 
 def detect_week(message: str) -> Optional[int]:
@@ -237,6 +247,11 @@ def chat_endpoint(http_request: Request, request: ChatRequest, current_user=Depe
     user_message = request.message.strip()
     if not user_message and not request.image_base64:
         raise HTTPException(status_code=400, detail="El mensaje no puede estar vacío.")
+    if len(user_message) > MAX_MESSAGE_LENGTH:
+        raise HTTPException(
+            status_code=413,
+            detail=f"El mensaje es demasiado largo (máx. {MAX_MESSAGE_LENGTH} caracteres).",
+        )
 
     if not current_user:
         check_guest_limit(get_client_ip(http_request))
@@ -253,11 +268,10 @@ def chat_endpoint(http_request: Request, request: ChatRequest, current_user=Depe
 
     conversation_id = None
     if current_user:
-        conversation_id = ensure_conversation(
-            current_user.id, request.conversation_id, user_message or "Imagen adjunta"
-        )
-        save_message(
-            conversation_id,
+        conversation_id = send_message(
+            current_user.id,
+            request.conversation_id,
+            user_message or "Imagen adjunta",
             "user",
             user_message or "(imagen adjunta)",
             attachment_type="image" if request.image_base64 else None,
@@ -295,7 +309,7 @@ Pregunta actual del usuario: {user_message or '(el usuario adjuntó una imagen s
         )
 
         if current_user and conversation_id:
-            save_message(conversation_id, "assistant", response_text)
+            send_message(current_user.id, conversation_id, "", "assistant", response_text)
 
         return ChatResponse(response=response_text, conversation_id=conversation_id)
 
