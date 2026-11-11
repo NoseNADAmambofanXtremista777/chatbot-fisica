@@ -1,0 +1,14 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Legacy local vector store, replaced by Supabase pgvector
+chroma_db/
+
+# Frontend (Vite/React)
+frontend/node_modules/
+frontend/dist/
+
+.DS_Store
