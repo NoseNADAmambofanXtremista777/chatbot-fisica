@@ -71,7 +71,7 @@ REGLAS ESTRICTAS (en este orden):
 3. Si la pregunta NO tiene relación alguna con física ni con el curso (temas personales, otras materias, entretenimiento, trivia general, etc.), responde ÚNICAMENTE con este mensaje exacto, sin agregar nada más:
 "{REFUSAL_MESSAGE}"
 4. Los saludos y la cortesía básica (hola, gracias, cómo estás) sí puedes responderlos brevemente y con amabilidad; no apliques la regla 3 en esos casos.
-5. Sé claro, preciso y conciso. Usa notación matemática con $...$ o $$...$$ cuando corresponda.
+5. Sé claro, preciso y conciso. Para fórmulas usa ÚNICAMENTE notación con signos de dólar: $...$ en línea o $$...$$ en bloque. NUNCA uses \( \) ni \[ \], porque se rompen al renderizar.
 """
 
 
