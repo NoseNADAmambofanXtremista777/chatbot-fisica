@@ -15,8 +15,6 @@ import {
 import {
   loadSessions,
   saveSessions,
-  loadCurrentSessionId,
-  saveCurrentSessionId,
   getGuestMessageCount,
   incrementGuestMessageCount,
   GUEST_MESSAGE_LIMIT,
@@ -32,10 +30,13 @@ export default function App() {
   const [accessToken, setAccessToken] = useState(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [ageBlockedMessage, setAgeBlockedMessage] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
 
-  // Modo invitado: todo en localStorage
+  // Modo invitado: todo en localStorage. currentLocalId arranca en null a
+  // proposito: cada apertura nueva del sitio debe mostrar un chat nuevo, el
+  // historial anterior se conserva en localSessions y queda en el sidebar.
   const [localSessions, setLocalSessions] = useState(() => loadSessions());
-  const [currentLocalId, setCurrentLocalId] = useState(() => loadCurrentSessionId());
+  const [currentLocalId, setCurrentLocalId] = useState(null);
   const [guestMessageCount, setGuestMessageCount] = useState(() => getGuestMessageCount());
 
   // Modo autenticado: conversaciones persistidas en Supabase (via backend)
@@ -59,10 +60,14 @@ export default function App() {
 
   // --- Sesion de Supabase: carga inicial + cambios (login/logout/refresh) ---
   useEffect(() => {
-    if (!supabase) return;
+    if (!supabase) {
+      setAuthChecked(true);
+      return;
+    }
     supabase.auth.getSession().then(({ data }) => {
       setUser(data.session?.user || null);
       setAccessToken(data.session?.access_token || null);
+      setAuthChecked(true);
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user || null);
@@ -71,19 +76,20 @@ export default function App() {
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  // --- Modo invitado: asegurar que exista una sesion local activa ---
+  // --- Modo invitado: siempre arranca un chat nuevo una vez que ya se sabe
+  // que no hay sesion (esperamos a authChecked para no crear un chat invitado
+  // "fantasma" mientras todavia se esta confirmando una sesion existente).
   useEffect(() => {
-    if (isAuthed) return;
-    if (!currentLocalId || !localSessions[currentLocalId]) {
-      const newId = `session_${Date.now()}`;
-      const next = { ...localSessions, [newId]: createSession() };
-      setLocalSessions(next);
-      setCurrentLocalId(newId);
+    if (!authChecked || isAuthed) return;
+    const newId = `session_${Date.now()}`;
+    setLocalSessions((prev) => {
+      const next = { ...prev, [newId]: createSession() };
       saveSessions(next);
-      saveCurrentSessionId(newId);
-    }
+      return next;
+    });
+    setCurrentLocalId(newId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthed]);
+  }, [authChecked, isAuthed]);
 
   // --- Modo autenticado: cargar lista de conversaciones al iniciar sesion ---
   useEffect(() => {
@@ -128,7 +134,6 @@ export default function App() {
       const next = { ...localSessions, [newId]: createSession() };
       persistLocal(next);
       setCurrentLocalId(newId);
-      saveCurrentSessionId(newId);
     }
     setView("chat");
     setSidebarOpen(false);
@@ -151,7 +156,6 @@ export default function App() {
       }
     } else {
       setCurrentLocalId(id);
-      saveCurrentSessionId(id);
     }
     setView("chat");
     setSidebarOpen(false);
@@ -179,12 +183,10 @@ export default function App() {
         if (remaining.length > 0) {
           const fallbackId = remaining[remaining.length - 1];
           setCurrentLocalId(fallbackId);
-          saveCurrentSessionId(fallbackId);
         } else {
           const newId = `session_${Date.now()}`;
           next[newId] = createSession();
           setCurrentLocalId(newId);
-          saveCurrentSessionId(newId);
         }
       }
       persistLocal(next);

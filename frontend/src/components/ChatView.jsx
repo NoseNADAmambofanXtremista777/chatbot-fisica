@@ -65,13 +65,12 @@ export default function ChatView({
         )}
 
         {loading && (
-          <div className="loading">
+          <div className="message bot-message typing-indicator" aria-label="Finx está pensando la respuesta">
             <span className="dots">
               <i></i>
               <i></i>
               <i></i>
             </span>
-            <span>Pensando la respuesta...</span>
           </div>
         )}
       </div>
