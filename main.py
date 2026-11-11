@@ -1,10 +1,11 @@
 import os
 import re
 import traceback
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -86,10 +87,52 @@ class ChatRequest(BaseModel):
     image_base64: Optional[str] = None
     image_mime: Optional[str] = "image/jpeg"
     week: Optional[int] = None
+    conversation_id: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
     response: str
+    conversation_id: Optional[str] = None
+
+
+def get_current_user(authorization: Optional[str] = Header(None)):
+    """Devuelve el usuario de Supabase si viene un JWT valido en el header
+    Authorization, o None (modo invitado) si no hay sesion. Nunca lanza error:
+    un token invalido simplemente se trata como invitado."""
+    if not authorization or not supabase:
+        return None
+    parts = authorization.split(" ", 1)
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        return None
+    try:
+        result = supabase.auth.get_user(parts[1].strip())
+        return result.user if result else None
+    except Exception:
+        return None
+
+
+def ensure_conversation(user_id: str, conversation_id: Optional[str], title_hint: str) -> str:
+    if conversation_id:
+        owner = supabase.table("conversations").select("user_id").eq("id", conversation_id).execute()
+        if owner.data and owner.data[0]["user_id"] == user_id:
+            return conversation_id
+    title = title_hint.strip()[:40] or "Nueva conversación"
+    if len(title_hint.strip()) > 40:
+        title += "..."
+    created = supabase.table("conversations").insert({"user_id": user_id, "title": title}).execute()
+    return created.data[0]["id"]
+
+
+def save_message(conversation_id: str, role: str, content: str, attachment_type: Optional[str] = None):
+    supabase.table("messages").insert({
+        "conversation_id": conversation_id,
+        "role": role,
+        "content": content,
+        "attachment_type": attachment_type,
+    }).execute()
+    supabase.table("conversations").update({
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }).eq("id", conversation_id).execute()
 
 
 def detect_week(message: str) -> Optional[int]:
@@ -143,10 +186,22 @@ def get_sources():
 
 
 @app.post("/chat", response_model=ChatResponse)
-def chat_endpoint(request: ChatRequest):
+def chat_endpoint(request: ChatRequest, current_user=Depends(get_current_user)):
     user_message = request.message.strip()
     if not user_message and not request.image_base64:
         raise HTTPException(status_code=400, detail="El mensaje no puede estar vacío.")
+
+    conversation_id = None
+    if current_user:
+        conversation_id = ensure_conversation(
+            current_user.id, request.conversation_id, user_message or "Imagen adjunta"
+        )
+        save_message(
+            conversation_id,
+            "user",
+            user_message or "(imagen adjunta)",
+            attachment_type="image" if request.image_base64 else None,
+        )
 
     try:
         week = request.week or detect_week(user_message)
@@ -178,14 +233,61 @@ Pregunta actual del usuario: {user_message or '(el usuario adjuntó una imagen s
         response_text = (
             str(ai_response.content) if ai_response and hasattr(ai_response, "content") else "No se pudo generar respuesta."
         )
-        return ChatResponse(response=response_text)
+
+        if current_user and conversation_id:
+            save_message(conversation_id, "assistant", response_text)
+
+        return ChatResponse(response=response_text, conversation_id=conversation_id)
 
     except Exception:
         print("\nERROR EN EL SERVIDOR:")
         traceback.print_exc()
         return ChatResponse(
-            response="Hubo un inconveniente al procesar tu consulta. Por favor, intenta de nuevo."
+            response="Hubo un inconveniente al procesar tu consulta. Por favor, intenta de nuevo.",
+            conversation_id=conversation_id,
         )
+
+
+@app.get("/conversations")
+def list_conversations(current_user=Depends(get_current_user)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Se requiere iniciar sesión.")
+    result = (
+        supabase.table("conversations")
+        .select("id, title, updated_at")
+        .eq("user_id", current_user.id)
+        .order("updated_at", desc=True)
+        .execute()
+    )
+    return result.data
+
+
+@app.get("/conversations/{conversation_id}/messages")
+def get_conversation_messages(conversation_id: str, current_user=Depends(get_current_user)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Se requiere iniciar sesión.")
+    owner = supabase.table("conversations").select("user_id").eq("id", conversation_id).execute()
+    if not owner.data or owner.data[0]["user_id"] != current_user.id:
+        raise HTTPException(status_code=404, detail="Conversación no encontrada.")
+    result = (
+        supabase.table("messages")
+        .select("role, content, attachment_type, created_at")
+        .eq("conversation_id", conversation_id)
+        .order("created_at")
+        .execute()
+    )
+    return result.data
+
+
+@app.delete("/conversations/{conversation_id}")
+def delete_conversation(conversation_id: str, current_user=Depends(get_current_user)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Se requiere iniciar sesión.")
+    owner = supabase.table("conversations").select("user_id").eq("id", conversation_id).execute()
+    if not owner.data or owner.data[0]["user_id"] != current_user.id:
+        raise HTTPException(status_code=404, detail="Conversación no encontrada.")
+    supabase.table("conversations").delete().eq("id", conversation_id).execute()
+    return {"status": "deleted"}
 
 
 @app.post("/transcribe")

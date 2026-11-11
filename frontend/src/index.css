@@ -304,6 +304,49 @@ button:focus-visible, .chat-item:focus-visible { outline: 2px solid var(--plasma
   button.send-btn { padding: 0.75rem 1.1rem; }
 }
 
+/* ---------- Modal de autenticación ---------- */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(3, 5, 14, 0.7);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1rem;
+}
+.modal {
+  width: 100%; max-width: 360px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 16px; padding: 1.6rem;
+  display: flex; flex-direction: column; gap: 0.9rem;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+.modal h2 { font-size: 1.2rem; }
+.modal-sub { color: var(--muted); font-size: 0.85rem; margin-top: -0.6rem; }
+.modal-divider {
+  display: flex; align-items: center; gap: 0.6rem;
+  color: var(--muted); font-size: 0.78rem; text-align: center;
+}
+.modal-divider::before, .modal-divider::after {
+  content: ""; flex: 1; height: 1px; background: var(--line);
+}
+.google-btn {
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+  padding: 0.7rem 1rem; border-radius: 12px; font: inherit; font-weight: 600;
+  cursor: pointer;
+}
+.google-btn:hover { border-color: rgba(34, 228, 255, 0.4); }
+.modal-form { display: flex; flex-direction: column; gap: 0.7rem; }
+.modal-form input {
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+  padding: 0.7rem 0.9rem; border-radius: 10px; font: inherit; font-size: 0.95rem;
+  outline: none;
+}
+.modal-form input:focus { border-color: var(--plasma); }
+.modal-error { color: var(--danger); font-size: 0.85rem; }
+.modal-info { color: var(--plasma); font-size: 0.85rem; }
+.modal-switch {
+  background: none; border: none; color: var(--muted);
+  font: inherit; font-size: 0.85rem; cursor: pointer; text-decoration: underline;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }

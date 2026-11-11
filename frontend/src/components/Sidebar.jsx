@@ -7,6 +7,9 @@ export default function Sidebar({
   onNewChat,
   onSelectChat,
   onDeleteChat,
+  user,
+  onOpenAuth,
+  onSignOut,
 }) {
   const orderedIds = Object.keys(sessions).reverse();
 
@@ -65,10 +68,17 @@ export default function Sidebar({
         </div>
       )}
 
-      <button className="profile-btn" disabled title="Disponible en la próxima fase">
-        <span className="profile-avatar">I</span>
-        <span>Invitado · Iniciar sesión</span>
-      </button>
+      {user ? (
+        <button className="profile-btn" onClick={onSignOut} title="Cerrar sesión">
+          <span className="profile-avatar">{user.email?.[0]?.toUpperCase() || "U"}</span>
+          <span>{user.email} · Salir</span>
+        </button>
+      ) : (
+        <button className="profile-btn" onClick={onOpenAuth}>
+          <span className="profile-avatar">I</span>
+          <span>Invitado · Iniciar sesión</span>
+        </button>
+      )}
     </div>
   );
 }

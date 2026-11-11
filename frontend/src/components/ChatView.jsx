@@ -14,6 +14,7 @@ export default function ChatView({
   loading,
   onToggleSidebar,
   guestLimitReached,
+  onOpenAuth,
 }) {
   const chatBoxRef = useRef(null);
 
@@ -46,7 +47,7 @@ export default function ChatView({
             />
             <div className="chips">
               {SUGGESTIONS.map((s) => (
-                <button key={s} className="chip" onClick={() => onSend(s)}>
+                <button key={s} className="chip" onClick={() => onSend(s, null)}>
                   {s}
                 </button>
               ))}
@@ -78,9 +79,7 @@ export default function ChatView({
       {guestLimitReached && (
         <div className="guest-banner">
           <span>Llegaste al límite de mensajes como invitado. Regístrate para seguir chateando y guardar tu historial.</span>
-          <button disabled title="Disponible en la próxima fase">
-            Crear cuenta
-          </button>
+          <button onClick={onOpenAuth}>Crear cuenta</button>
         </div>
       )}
 
