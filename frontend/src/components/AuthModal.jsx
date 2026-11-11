@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { calculateAge, MIN_AGE } from "../lib/age";
+import TurnstileWidget from "./TurnstileWidget";
+
+const TURNSTILE_ENABLED = Boolean(import.meta.env.VITE_TURNSTILE_SITE_KEY);
 
 export default function AuthModal({ onClose }) {
   const [mode, setMode] = useState("signin");
@@ -10,6 +13,13 @@ export default function AuthModal({ onClose }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [info, setInfo] = useState(null);
+  const [captchaToken, setCaptchaToken] = useState(null);
+  const [captchaKey, setCaptchaKey] = useState(0);
+
+  function resetCaptcha() {
+    setCaptchaToken(null);
+    setCaptchaKey((k) => k + 1);
+  }
 
   if (!supabase) {
     return (
@@ -26,6 +36,10 @@ export default function AuthModal({ onClose }) {
     e.preventDefault();
     setError(null);
     setInfo(null);
+    if (TURNSTILE_ENABLED && !captchaToken) {
+      setError("Completa la verificación anti-bot para continuar.");
+      return;
+    }
     setLoading(true);
     try {
       if (mode === "signup") {
@@ -43,12 +57,16 @@ export default function AuthModal({ onClose }) {
         const { error: err } = await supabase.auth.signUp({
           email,
           password,
-          options: { data: { birthdate } },
+          options: { data: { birthdate }, captchaToken: captchaToken || undefined },
         });
         if (err) throw err;
         setInfo("Cuenta creada. Revisa tu correo para confirmar antes de iniciar sesión.");
       } else {
-        const { error: err } = await supabase.auth.signInWithPassword({ email, password });
+        const { error: err } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+          options: { captchaToken: captchaToken || undefined },
+        });
         if (err) throw err;
         onClose();
       }
@@ -56,6 +74,7 @@ export default function AuthModal({ onClose }) {
       setError(err.message || "Ocurrió un error.");
     } finally {
       setLoading(false);
+      resetCaptcha();
     }
   }
 
@@ -117,9 +136,16 @@ export default function AuthModal({ onClose }) {
               />
             </label>
           )}
+          {TURNSTILE_ENABLED && (
+            <TurnstileWidget key={`${mode}-${captchaKey}`} onToken={setCaptchaToken} />
+          )}
           {error && <p className="modal-error">{error}</p>}
           {info && <p className="modal-info">{info}</p>}
-          <button className="new-chat-btn" type="submit" disabled={loading}>
+          <button
+            className="new-chat-btn"
+            type="submit"
+            disabled={loading || (TURNSTILE_ENABLED && !captchaToken)}
+          >
             {loading ? "Un momento..." : mode === "signup" ? "Crear cuenta" : "Entrar"}
           </button>
         </form>
@@ -131,6 +157,7 @@ export default function AuthModal({ onClose }) {
             setMode(mode === "signup" ? "signin" : "signup");
             setError(null);
             setInfo(null);
+            resetCaptcha();
           }}
         >
           {mode === "signup" ? "¿Ya tienes cuenta? Inicia sesión" : "¿No tienes cuenta? Regístrate"}
