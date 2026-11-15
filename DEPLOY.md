@@ -16,45 +16,43 @@ Cloudflare, sigue estos pasos en orden — son prácticamente copiar y pegar.
 
 ## 1. Backend en Fly.io
 
-1. Crea una cuenta en [fly.io](https://fly.io) (pide tarjeta para habilitar el uso,
-   aunque el plan "Hobby" tiene una asignación gratuita mensual).
-2. Inicia sesión desde la terminal:
+La app `chatbot-fisica` ya existe en Fly.io, conectada al repo de GitHub
+`NoseNADAmambofanXtremista777/chatbot-fisica` (se reemplazó el contenido viejo
+de ese repo con el código actual de Finx). `fly.toml` ya tiene `app =
+"chatbot-fisica"` y `min_machines_running = 1` (no se duerme nunca; esto tiene
+costo continuo, ya no es 100% gratis).
+
+1. En el [dashboard de Fly.io](https://fly.io/apps/chatbot-fisica), agrega una
+   tarjeta en **Billing** de tu organización (pide tarjeta incluso para el uso
+   incluido en el plan "Hobby"; el trial de 7 días no alcanza para "nunca se
+   duerme" a largo plazo).
+2. Carga los secretos (nunca van en `fly.toml` ni al repo):
    ```bash
-   flyctl auth login
+   flyctl secrets set GROQ_API_KEY=tu_groq_api_key -a chatbot-fisica
+   flyctl secrets set SUPABASE_URL=https://bixeyfukhdonkpdefxft.supabase.co -a chatbot-fisica
+   flyctl secrets set SUPABASE_SECRET_KEY=tu_service_role_key -a chatbot-fisica
+   flyctl secrets set CORS_ORIGINS=https://finx-1ol.pages.dev -a chatbot-fisica
    ```
-3. Desde la carpeta del proyecto (`chatbot_proyecto/`), crea la app (usa el `fly.toml`
-   que ya existe, solo confirma nombre/región o ajústalos):
+3. Lanza/despliega (usa "Launch app via UI" en el dashboard, o desde la terminal):
    ```bash
-   flyctl launch --no-deploy
+   flyctl deploy -a chatbot-fisica
    ```
-   Si te pregunta si quieres usar el `fly.toml` existente, di que sí. Si el nombre
-   `finx-backend` ya está tomado, Fly te dejará elegir otro (actualiza el campo `app`
-   en `fly.toml` para que coincida).
-4. Carga los secretos (nunca van en `fly.toml` ni al repo):
+4. Verifica que responde:
    ```bash
-   flyctl secrets set GROQ_API_KEY=tu_groq_api_key
-   flyctl secrets set SUPABASE_URL=https://bixeyfukhdonkpdefxft.supabase.co
-   flyctl secrets set SUPABASE_SECRET_KEY=tu_service_role_key
-   flyctl secrets set CORS_ORIGINS=https://finx.pages.dev
-   ```
-   (Ajusta `CORS_ORIGINS` al dominio real que te dé Cloudflare Pages en el paso 2;
-   puedes separar varios orígenes con comas.)
-5. Despliega:
-   ```bash
-   flyctl deploy
-   ```
-6. Verifica que responde:
-   ```bash
-   curl https://<tu-app>.fly.dev/
+   curl https://chatbot-fisica.fly.dev/
    ```
    Deberías ver `{"status":"Finx API funcionando correctamente"}`.
+5. En `frontend/.env`, cambia `VITE_API_BASE_URL` a `https://chatbot-fisica.fly.dev`
+   y vuelve a compilar/publicar el frontend (`npm run build` + `wrangler pages deploy`).
 
 Notas:
 - `ingest.py` **no** se ejecuta dentro del contenedor desplegado (no viaja la carpeta
   `documentos/`). Sigue corriéndolo localmente contra Supabase cuando agregues
   material nuevo (semanas 14, 15, etc.) — ya escribe directo a la base de datos,
   así que el backend desplegado lo ve de inmediato sin necesidad de redeploy.
-- Revisa logs con `flyctl logs`.
+- Revisa logs con `flyctl logs -a chatbot-fisica`.
+- Como el repo de GitHub está conectado a Fly.io, cada `git push origin main`
+  puede disparar un redeploy automático (revisa esto en la pestaña de la app).
 
 ## 2. Frontend en Cloudflare Pages
 
