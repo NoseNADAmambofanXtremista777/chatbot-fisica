@@ -279,6 +279,7 @@ export default function App() {
     // Modo invitado
     if (!currentLocalId) return;
     const session = localSessions[currentLocalId];
+    const wasEmpty = session.history.length === 0;
     const historyForBackend = session.history.slice();
     const userMessage = { role: "user", content: text, attachmentPreview: attachment?.previewUrl };
 
@@ -308,6 +309,7 @@ export default function App() {
         ...next,
         [currentLocalId]: {
           ...next[currentLocalId],
+          title: wasEmpty && data.title ? data.title : next[currentLocalId].title,
           history: [...next[currentLocalId].history, assistantMessage],
         },
       };

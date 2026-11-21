@@ -64,9 +64,21 @@ SUPABASE_SECRET_KEY = os.getenv("SUPABASE_SECRET_KEY")
 # 1. Embeddings con HuggingFace (100% local, sin cuotas)
 embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
-# 2. Modelos de Groq: texto y vision
+# 2. Modelos de Groq: texto, vision y titulos de conversacion
 llm = ChatGroq(model=GROQ_CHAT_MODEL, temperature=0.3, groq_api_key=GROQ_API_KEY)
 vision_llm = ChatGroq(model=GROQ_VISION_MODEL, temperature=0.3, groq_api_key=GROQ_API_KEY)
+# Instancia separada con max_tokens bajo: rapida y barata, y no limita el
+# largo de las respuestas normales del chat (que usan `llm` sin tope).
+# reasoning_effort="low" es necesario: openai/gpt-oss-120b por defecto gasta
+# los tokens "pensando" antes de responder, y con un max_tokens chico nunca
+# llegaba a escribir el titulo (contenido vacio).
+title_llm = ChatGroq(
+    model=GROQ_CHAT_MODEL,
+    temperature=0.3,
+    max_tokens=40,
+    groq_api_key=GROQ_API_KEY,
+    reasoning_effort="low",
+)
 
 # 3. Cliente directo de Groq para transcripcion de audio (Whisper)
 groq_audio_client = GroqAudioClient(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
@@ -130,6 +142,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str
     conversation_id: Optional[str] = None
+    title: Optional[str] = None
 
 
 def get_current_user(authorization: Optional[str] = Header(None)):
@@ -169,6 +182,26 @@ def send_message(
         "p_attachment_type": attachment_type,
     }).execute()
     return result.data
+
+
+def generate_conversation_title(message: str) -> str:
+    """Resume el primer mensaje de una conversacion en un titulo corto, como
+    hacen otras IAs. Si el modelo falla por lo que sea, cae de vuelta al
+    recorte simple: esto nunca debe romper el flujo de chat."""
+    clean_message = message.strip()
+    fallback = clean_message[:40] or "Nueva conversación"
+    try:
+        prompt = (
+            "Resume esta pregunta de un curso de física en un título corto de "
+            "3 a 6 palabras, en español, sin comillas ni punto final. "
+            f"Pregunta: {clean_message[:500]}"
+        )
+        response = title_llm.invoke([HumanMessage(content=prompt)])
+        title = str(response.content).strip().strip('"').strip("'").strip()
+        return title[:60] if title else fallback
+    except Exception:
+        print("Advertencia: no se pudo generar el título de la conversación, usando recorte simple.")
+        return fallback
 
 
 def detect_week(message: str) -> Optional[int]:
@@ -266,12 +299,17 @@ def chat_endpoint(http_request: Request, request: ChatRequest, current_user=Depe
         if len(image_bytes) > MAX_IMAGE_BYTES:
             raise HTTPException(status_code=413, detail="La imagen es demasiado grande (máx. 6 MB).")
 
+    is_new_conversation = not request.history
+    conversation_title = (
+        generate_conversation_title(user_message) if (is_new_conversation and user_message) else None
+    )
+
     conversation_id = None
     if current_user:
         conversation_id = send_message(
             current_user.id,
             request.conversation_id,
-            user_message or "Imagen adjunta",
+            conversation_title or user_message or "Imagen adjunta",
             "user",
             user_message or "(imagen adjunta)",
             attachment_type="image" if request.image_base64 else None,
@@ -311,7 +349,7 @@ Pregunta actual del usuario: {user_message or '(el usuario adjuntó una imagen s
         if current_user and conversation_id:
             send_message(current_user.id, conversation_id, "", "assistant", response_text)
 
-        return ChatResponse(response=response_text, conversation_id=conversation_id)
+        return ChatResponse(response=response_text, conversation_id=conversation_id, title=conversation_title)
 
     except Exception:
         print("\nERROR EN EL SERVIDOR:")
@@ -319,6 +357,7 @@ Pregunta actual del usuario: {user_message or '(el usuario adjuntó una imagen s
         return ChatResponse(
             response="Hubo un inconveniente al procesar tu consulta. Por favor, intenta de nuevo.",
             conversation_id=conversation_id,
+            title=conversation_title,
         )
 
 
