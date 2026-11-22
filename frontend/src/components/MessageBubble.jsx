@@ -9,9 +9,16 @@ export default function MessageBubble({ role, content, attachmentPreview }) {
 
   useEffect(() => {
     if (role === "user" || !botRef.current) return;
+    // Algunos modelos (Claude incluido) ignoran la instruccion del system
+    // prompt y devuelven LaTeX con \( \) / \[ \] en vez de $ $. Esos
+    // delimitadores no sobreviven al parseo de Markdown (la barra invertida
+    // se consume como escape), asi que se normalizan a $ / $$ antes de nada.
+    const normalized = (content || "")
+      .replace(/\\\[([\s\S]*?)\\\]/g, (_, expr) => `$$${expr}$$`)
+      .replace(/\\\(([\s\S]*?)\\\)/g, (_, expr) => `$${expr}$`);
     // El contenido viene del modelo (y, de rebote, del material del curso via
     // RAG): nunca es HTML de confianza, asi que se sanitiza antes de insertarlo.
-    const rawHtml = marked.parse(content || "");
+    const rawHtml = marked.parse(normalized);
     botRef.current.innerHTML = DOMPurify.sanitize(rawHtml);
     // Solo delimitadores con "$": "\( \)" y "\[ \]" no sobreviven al parseo de
     // Markdown, que consume la barra invertida como escape antes de llegar aqui.

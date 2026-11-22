@@ -126,8 +126,10 @@ export default function Composer({ onSend, disabled }) {
           className="send-btn"
           onClick={handleSend}
           disabled={disabled || transcribing || (!text.trim() && !attachment)}
+          title="Enviar"
         >
-          Enviar
+          <span className="send-label">Enviar</span>
+          <span className="send-icon" aria-hidden="true">➤</span>
         </button>
       </div>
     </div>

@@ -307,6 +307,7 @@ button.send-btn {
 }
 button.send-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--glow); }
 button.send-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.send-icon { display: none; }
 
 button:focus-visible, .chat-item:focus-visible { outline: 2px solid var(--plasma); outline-offset: 2px; }
 
@@ -321,6 +322,15 @@ button:focus-visible, .chat-item:focus-visible { outline: 2px solid var(--plasma
   .message { max-width: 90%; }
   header, .chat-box, .input-container, .guest-banner { padding-left: 1rem; padding-right: 1rem; }
   button.send-btn { padding: 0.75rem 1.1rem; }
+}
+
+/* Telefonos angostos: el boton "Enviar" pasa a ser solo un icono, para
+   dejarle todo el ancho posible al campo de texto. */
+@media (max-width: 420px) {
+  .icon-btn { width: 34px; height: 34px; font-size: 1rem; }
+  .send-label { display: none; }
+  .send-icon { display: inline-block; }
+  button.send-btn { padding: 0.75rem; }
 }
 
 /* ---------- Modal de autenticación ---------- */

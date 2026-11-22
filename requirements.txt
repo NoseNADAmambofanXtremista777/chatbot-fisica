@@ -4,10 +4,11 @@ pydantic==2.14.3
 python-dotenv==1.2.4
 python-multipart==0.0.33
 
-# LLM (Groq) y embeddings locales
+# LLM (Claude Sonnet, con Groq de respaldo) y embeddings locales
 langchain==1.4.10
 langchain-core==1.7.7
 langchain-community==0.4.2
+langchain-anthropic==1.2.0
 langchain-groq==1.1.3
 langchain-huggingface==1.2.3
 sentence-transformers==6.3.0

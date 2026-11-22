@@ -10,6 +10,7 @@ from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, Uplo
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_groq import ChatGroq
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -50,6 +51,9 @@ async def security_headers(request: Request, call_next):
     response.headers["Permissions-Policy"] = "camera=(), geolocation=(), payment=()"
     return response
 
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+ANTHROPIC_CHAT_MODEL = os.getenv("ANTHROPIC_CHAT_MODEL", "claude-sonnet-5-5")
+
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_CHAT_MODEL = os.getenv("GROQ_CHAT_MODEL", "openai/gpt-oss-120b")
 # El catalogo de modelos con vision de Groq cambia seguido (hoy en preview).
@@ -64,21 +68,39 @@ SUPABASE_SECRET_KEY = os.getenv("SUPABASE_SECRET_KEY")
 # 1. Embeddings con HuggingFace (100% local, sin cuotas)
 embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
-# 2. Modelos de Groq: texto, vision y titulos de conversacion
-llm = ChatGroq(model=GROQ_CHAT_MODEL, temperature=0.3, groq_api_key=GROQ_API_KEY)
-vision_llm = ChatGroq(model=GROQ_VISION_MODEL, temperature=0.3, groq_api_key=GROQ_API_KEY)
+# 2. Modelos: Claude Sonnet como primario, Groq como respaldo si Claude
+# falla (cuota agotada, error de red, etc.) via with_fallbacks(). Si no hay
+# ANTHROPIC_API_KEY configurada, se usa directamente Groq como antes.
+_groq_llm = ChatGroq(model=GROQ_CHAT_MODEL, temperature=0.3, groq_api_key=GROQ_API_KEY)
+_groq_vision_llm = ChatGroq(model=GROQ_VISION_MODEL, temperature=0.3, groq_api_key=GROQ_API_KEY)
 # Instancia separada con max_tokens bajo: rapida y barata, y no limita el
 # largo de las respuestas normales del chat (que usan `llm` sin tope).
 # reasoning_effort="low" es necesario: openai/gpt-oss-120b por defecto gasta
 # los tokens "pensando" antes de responder, y con un max_tokens chico nunca
 # llegaba a escribir el titulo (contenido vacio).
-title_llm = ChatGroq(
+_groq_title_llm = ChatGroq(
     model=GROQ_CHAT_MODEL,
     temperature=0.3,
     max_tokens=40,
     groq_api_key=GROQ_API_KEY,
     reasoning_effort="low",
 )
+
+if ANTHROPIC_API_KEY:
+    llm = ChatAnthropic(
+        model=ANTHROPIC_CHAT_MODEL, temperature=0.3, api_key=ANTHROPIC_API_KEY
+    ).with_fallbacks([_groq_llm])
+    vision_llm = ChatAnthropic(
+        model=ANTHROPIC_CHAT_MODEL, temperature=0.3, api_key=ANTHROPIC_API_KEY
+    ).with_fallbacks([_groq_vision_llm])
+    title_llm = ChatAnthropic(
+        model=ANTHROPIC_CHAT_MODEL, temperature=0.3, max_tokens=40, api_key=ANTHROPIC_API_KEY
+    ).with_fallbacks([_groq_title_llm])
+else:
+    print("Advertencia: ANTHROPIC_API_KEY no configurada. Usando Groq como unico proveedor.")
+    llm = _groq_llm
+    vision_llm = _groq_vision_llm
+    title_llm = _groq_title_llm
 
 # 3. Cliente directo de Groq para transcripcion de audio (Whisper)
 groq_audio_client = GroqAudioClient(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
