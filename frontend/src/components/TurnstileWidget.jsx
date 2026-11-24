@@ -24,7 +24,7 @@ function loadTurnstileScript() {
 // registro/login. Supabase Auth ya esta configurado para exigir este token
 // (Attack Protection > Captcha protection), asi que sin el las llamadas a
 // signUp/signInWithPassword fallan.
-export default function TurnstileWidget({ onToken }) {
+export default function TurnstileWidget({ onToken, onError }) {
   const containerRef = useRef(null);
   const widgetIdRef = useRef(null);
 
@@ -38,7 +38,10 @@ export default function TurnstileWidget({ onToken }) {
         sitekey: SITE_KEY,
         callback: (token) => onToken(token),
         "expired-callback": () => onToken(null),
-        "error-callback": () => onToken(null),
+        "error-callback": () => {
+          onToken(null);
+          if (onError) onError();
+        },
       });
     });
 

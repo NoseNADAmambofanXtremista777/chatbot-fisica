@@ -69,10 +69,24 @@ export default function Sidebar({
       )}
 
       {user ? (
-        <button className="profile-btn" onClick={onSignOut} title="Cerrar sesión">
-          <span className="profile-avatar">{user.email?.[0]?.toUpperCase() || "U"}</span>
-          <span>{user.email} · Salir</span>
-        </button>
+        <div className="profile-btn" title={user.email || ""}>
+          {user.user_metadata?.avatar_url ? (
+            <img
+              className="profile-avatar"
+              src={user.user_metadata.avatar_url}
+              alt=""
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            <span className="profile-avatar">{user.email?.[0]?.toUpperCase() || "U"}</span>
+          )}
+          <span className="profile-label">
+            {user.user_metadata?.full_name || user.user_metadata?.name || user.email || "Mi cuenta"}
+          </span>
+          <button className="profile-signout" onClick={onSignOut}>
+            Salir
+          </button>
+        </div>
       ) : (
         <button className="profile-btn" onClick={onOpenAuth}>
           <span className="profile-avatar">I</span>

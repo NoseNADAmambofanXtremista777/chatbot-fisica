@@ -5,7 +5,21 @@ export const GUEST_MESSAGE_LIMIT = 10;
 
 export function loadSessions() {
   try {
-    return JSON.parse(localStorage.getItem(CHATS_KEY)) || {};
+    const parsed = JSON.parse(localStorage.getItem(CHATS_KEY)) || {};
+    // Limpia chats vacios acumulados por versiones anteriores (que creaban
+    // uno nuevo en cada recarga/login/logout sin que el usuario escribiera
+    // nada).
+    const cleaned = {};
+    let hadEmpty = false;
+    for (const [id, session] of Object.entries(parsed)) {
+      if (session?.history?.length > 0) {
+        cleaned[id] = session;
+      } else {
+        hadEmpty = true;
+      }
+    }
+    if (hadEmpty) saveSessions(cleaned);
+    return cleaned;
   } catch {
     return {};
   }

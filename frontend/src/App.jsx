@@ -20,8 +20,10 @@ import {
   GUEST_MESSAGE_LIMIT,
 } from "./lib/storage";
 
-function createSession() {
-  return { title: "Nueva conversación", history: [] };
+// El boton de descarga solo debe aparecer cuando el usuario pidio un
+// documento/PDF explicitamente, no en cualquier respuesta larga.
+function userAskedForDocument(text) {
+  return /\b(pdf|documento|apunte)s?\b/i.test(text || "");
 }
 
 export default function App() {
@@ -32,11 +34,13 @@ export default function App() {
   const [ageBlockedMessage, setAgeBlockedMessage] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
 
-  // Modo invitado: todo en localStorage. currentLocalId arranca en null a
-  // proposito: cada apertura nueva del sitio debe mostrar un chat nuevo, el
-  // historial anterior se conserva en localSessions y queda en el sidebar.
+  // Modo invitado: todo en localStorage. currentLocalId arranca en null (chat
+  // en blanco, como el modo autenticado) y no se guarda nada en el sidebar
+  // hasta que el usuario manda su primer mensaje -- asi evitamos acumular
+  // "Nueva conversacion" vacias por cada recarga, login/logout, etc.
   const [localSessions, setLocalSessions] = useState(() => loadSessions());
   const [currentLocalId, setCurrentLocalId] = useState(null);
+  const [pendingLocalHistory, setPendingLocalHistory] = useState([]);
   const [guestMessageCount, setGuestMessageCount] = useState(() => getGuestMessageCount());
 
   // Modo autenticado: conversaciones persistidas en Supabase (via backend)
@@ -76,22 +80,17 @@ export default function App() {
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  // --- Modo invitado: siempre arranca un chat nuevo una vez que ya se sabe
-  // que no hay sesion (esperamos a authChecked para no crear un chat invitado
-  // "fantasma" mientras todavia se esta confirmando una sesion existente).
-  useEffect(() => {
-    if (!authChecked || isAuthed) return;
-    const newId = `session_${Date.now()}`;
-    setLocalSessions((prev) => {
-      const next = { ...prev, [newId]: createSession() };
-      saveSessions(next);
-      return next;
-    });
-    setCurrentLocalId(newId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authChecked, isAuthed]);
-
   // --- Modo autenticado: cargar lista de conversaciones al iniciar sesion ---
+  // OJO: este efecto depende de "accessToken", y supabase-js dispara
+  // onAuthStateChange (arriba) cada vez que renueva el token en segundo
+  // plano (TOKEN_REFRESHED), no solo al iniciar sesion. Antes este efecto
+  // hacia setCurrentRemoteId(null) aca, asi que cada renovacion de token
+  // mientras el usuario chateaba le borraba la conversacion activa sin
+  // avisar: el siguiente mensaje llegaba al backend sin conversation_id y
+  // creaba una conversacion NUEVA en vez de continuar la misma -- por eso
+  // cada pregunta terminaba en un chat distinto con su propio titulo. Este
+  // efecto solo debe refrescar los titulos de la lista; nunca debe tocar
+  // cual conversacion esta activa (eso lo maneja handleNewChat/handleSelectChat).
   useEffect(() => {
     if (!isAuthed || !accessToken) return;
     fetchConversations(accessToken)
@@ -101,7 +100,6 @@ export default function App() {
           dict[c.id] = { title: c.title };
         });
         setRemoteConversations(dict);
-        setCurrentRemoteId(null);
       })
       .catch((err) => console.error(err));
   }, [isAuthed, accessToken]);
@@ -130,10 +128,8 @@ export default function App() {
       setCurrentRemoteId(null);
       setPendingHistory([]);
     } else {
-      const newId = `session_${Date.now()}`;
-      const next = { ...localSessions, [newId]: createSession() };
-      persistLocal(next);
-      setCurrentLocalId(newId);
+      setCurrentLocalId(null);
+      setPendingLocalHistory([]);
     }
     setView("chat");
     setSidebarOpen(false);
@@ -156,6 +152,7 @@ export default function App() {
       }
     } else {
       setCurrentLocalId(id);
+      setPendingLocalHistory([]);
     }
     setView("chat");
     setSidebarOpen(false);
@@ -178,18 +175,16 @@ export default function App() {
     } else {
       const next = { ...localSessions };
       delete next[id];
+      persistLocal(next);
       if (currentLocalId === id) {
         const remaining = Object.keys(next);
         if (remaining.length > 0) {
-          const fallbackId = remaining[remaining.length - 1];
-          setCurrentLocalId(fallbackId);
+          setCurrentLocalId(remaining[remaining.length - 1]);
         } else {
-          const newId = `session_${Date.now()}`;
-          next[newId] = createSession();
-          setCurrentLocalId(newId);
+          setCurrentLocalId(null);
+          setPendingLocalHistory([]);
         }
       }
-      persistLocal(next);
     }
   }
 
@@ -231,7 +226,11 @@ export default function App() {
           accessToken,
         });
         const realId = data.conversation_id;
-        const assistantMessage = { role: "assistant", content: data.response };
+        const assistantMessage = {
+          role: "assistant",
+          content: data.response,
+          wantsPdf: userAskedForDocument(text),
+        };
         const finalHistory = [...optimisticHistory, assistantMessage];
 
         if (realId) {
@@ -276,25 +275,29 @@ export default function App() {
       return;
     }
 
-    // Modo invitado
-    if (!currentLocalId) return;
-    const session = localSessions[currentLocalId];
-    const wasEmpty = session.history.length === 0;
-    const historyForBackend = session.history.slice();
+    // Modo invitado: si no hay chat activo todavia (borrador en blanco), recien
+    // ahora se crea y se persiste la sesion, con el primer mensaje adentro --
+    // asi nunca queda guardado un chat vacio por abrir la app o loguear/
+    // desloguear sin haber escrito nada.
+    const idKey = currentLocalId;
+    const isNew = !idKey;
+    const workingId = idKey || `session_${Date.now()}`;
+    const priorHistory = idKey ? localSessions[idKey].history : pendingLocalHistory;
+    const historyForBackend = priorHistory.slice();
     const userMessage = { role: "user", content: text, attachmentPreview: attachment?.previewUrl };
+    const optimisticHistory = [...priorHistory, userMessage];
 
     let next = {
       ...localSessions,
-      [currentLocalId]: {
-        ...session,
-        title:
-          session.history.length === 0
-            ? text.slice(0, 22) + (text.length > 22 ? "..." : "")
-            : session.title,
-        history: [...session.history, userMessage],
-      },
+      [workingId]: isNew
+        ? { title: text.slice(0, 22) + (text.length > 22 ? "..." : ""), history: optimisticHistory }
+        : { ...localSessions[workingId], history: optimisticHistory },
     };
     persistLocal(next);
+    if (isNew) {
+      setCurrentLocalId(workingId);
+      setPendingLocalHistory([]);
+    }
     setLoading(true);
 
     try {
@@ -304,13 +307,17 @@ export default function App() {
         imageBase64: attachment?.base64,
         imageMime: attachment?.mime,
       });
-      const assistantMessage = { role: "assistant", content: data.response };
+      const assistantMessage = {
+        role: "assistant",
+        content: data.response,
+        wantsPdf: userAskedForDocument(text),
+      };
       next = {
         ...next,
-        [currentLocalId]: {
-          ...next[currentLocalId],
-          title: wasEmpty && data.title ? data.title : next[currentLocalId].title,
-          history: [...next[currentLocalId].history, assistantMessage],
+        [workingId]: {
+          ...next[workingId],
+          title: isNew && data.title ? data.title : next[workingId].title,
+          history: [...next[workingId].history, assistantMessage],
         },
       };
       persistLocal(next);
@@ -318,10 +325,10 @@ export default function App() {
     } catch (err) {
       next = {
         ...next,
-        [currentLocalId]: {
-          ...next[currentLocalId],
+        [workingId]: {
+          ...next[workingId],
           history: [
-            ...next[currentLocalId].history,
+            ...next[workingId].history,
             { role: "assistant", content: `❌ ${err.message || "Hubo un error al contactar a Finx."}` },
           ],
         },
@@ -341,7 +348,7 @@ export default function App() {
   const sidebarCurrentId = isAuthed ? currentRemoteId : currentLocalId;
   const currentHistory = isAuthed
     ? (currentRemoteId ? remoteHistory[currentRemoteId] || [] : pendingHistory)
-    : localSessions[currentLocalId]?.history || [];
+    : (currentLocalId ? localSessions[currentLocalId]?.history || [] : pendingLocalHistory);
 
   return (
     <div className="app-layout">

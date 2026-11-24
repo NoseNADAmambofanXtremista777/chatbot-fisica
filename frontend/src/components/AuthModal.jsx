@@ -21,6 +21,13 @@ export default function AuthModal({ onClose }) {
     setCaptchaKey((k) => k + 1);
   }
 
+  function handleCaptchaError() {
+    setError(
+      "La verificación anti-bot no cargó correctamente. Revisa tu conexión (o desactiva bloqueadores de anuncios/VPN) e inténtalo de nuevo."
+    );
+    resetCaptcha();
+  }
+
   if (!supabase) {
     return (
       <div className="modal-overlay" onClick={onClose}>
@@ -54,13 +61,27 @@ export default function AuthModal({ onClose }) {
           setLoading(false);
           return;
         }
-        const { error: err } = await supabase.auth.signUp({
+        const { data, error: err } = await supabase.auth.signUp({
           email,
           password,
           options: { data: { birthdate }, captchaToken: captchaToken || undefined },
         });
         if (err) throw err;
-        setInfo("Cuenta creada. Revisa tu correo para confirmar antes de iniciar sesión.");
+        // Supabase nunca dice "este correo ya existe" en un signUp (para no
+        // revelar que correos estan registrados), pero cuando el usuario ya
+        // tiene una cuenta confirmada, devuelve el user SIN "identities" (un
+        // array vacio) en vez de un error -- esa es la unica forma de
+        // detectarlo del lado del cliente.
+        if (data.user && data.user.identities && data.user.identities.length === 0) {
+          setError("Ya existe una cuenta con este correo. Inicia sesión en vez de registrarte.");
+          setMode("signin");
+        } else if (data.session) {
+          // "Confirm email" esta desactivado: la cuenta queda activa al
+          // instante, sin paso de confirmacion por correo.
+          onClose();
+        } else {
+          setInfo("Cuenta creada. Revisa tu correo para confirmar antes de iniciar sesión.");
+        }
       } else {
         const { error: err } = await supabase.auth.signInWithPassword({
           email,
@@ -137,7 +158,11 @@ export default function AuthModal({ onClose }) {
             </label>
           )}
           {TURNSTILE_ENABLED && (
-            <TurnstileWidget key={`${mode}-${captchaKey}`} onToken={setCaptchaToken} />
+            <TurnstileWidget
+              key={`${mode}-${captchaKey}`}
+              onToken={setCaptchaToken}
+              onError={handleCaptchaError}
+            />
           )}
           {error && <p className="modal-error">{error}</p>}
           {info && <p className="modal-info">{info}</p>}

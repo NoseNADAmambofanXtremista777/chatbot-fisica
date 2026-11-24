@@ -60,6 +60,7 @@ export default function ChatView({
               role={msg.role}
               content={msg.content}
               attachmentPreview={msg.attachmentPreview}
+              wantsPdf={msg.wantsPdf}
             />
           ))
         )}
